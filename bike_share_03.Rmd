@@ -1,0 +1,162 @@
+----
+title: "Bay Area Bike Share: a Reference for R in Data Analytics - Machine Learning"
+author: "Adam Benson, PhD"
+date: "9/29/2020"
+output: html_notebook
+---
+
+Data taken from the Kaggle challenge 
+"https://www.kaggle.com/benhamner/sf-bay-area-bike-share"
+
+This data set has been used as a 'Hello World' for data science method 
+development. After the data has been loaded, cleaned and is generally 
+understood, it is customary to follow these steps:
+
+1. Define the problem or stated objectives
+2. Define or identify the desired metrics of results
+3. Understand how to present the expected results 
+4. Select candidate methods of analysis 
+5. Identify data required to perform the analysis
+6. Organize a method to gather data
+7. Perform analysis and capture deviations from expected results 
+
+and more...
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+Packages <- c("readr", "data.table", "lubridate", "dplyr", "ggplot2") 
+lapply(Packages, library, character.only = TRUE)
+```
+## R Markdown
+```{r}
+## Load trip data
+
+true_trip <- read.csv("trip.csv")
+true_station <- read.csv("station.csv")
+```
+
+
+```{r}
+# Do this so you don't need to read the csv in if you want to start over.
+trip <- true_trip
+station <-true_station
+
+# Prepare data for analysis 
+# Get dates in POSIXct, format
+trip$start_date <- mdy_hm(trip$start_date)
+trip$end_date <- mdy_hm(trip$end_date)
+str(trip)
+```
+
+```{r}
+trip$date <- trip$start_date
+trip$date <- as.Date(trip$date) 
+#Based on the start_station_temp ID, merge the "city" variable into trip df
+trip$date <- as.Date(trip$start_date)
+trip$end_station_name <- as.factor(trip$end_station_name)
+
+trip$zip_code <- as.factor(trip$zip_code)
+trip$id2 <- trip$id
+trip$id <- trip$start_station_id
+trip <- left_join(trip, station, by = c ("start_station_id"="id"))
+str(trip)
+```
+
+
+```{r}
+trip$city <- as.factor(trip$city)
+trip$installation_date <- mdy(trip$installation_date)
+
+trip$start_station_id <- as.factor(trip$start_station_id)
+trip$start_station_name <- as.factor(trip$start_station_name)
+
+trip$end_station_id <- as.factor(trip$end_station_id)
+trip$end_station_name <- as.factor(trip$end_station_name)
+
+trip$id <- as.factor(trip$id)
+trip$id2 <- as.factor(trip$id2)
+
+trip$bike_id <- as.factor(trip$bike_id)
+
+trip$subscription_type <- as.factor(trip$subscription_type)
+
+trip$name <- as.factor(trip$name)
+trip$city <- as.factor(trip$city)
+
+summary(trip)
+```
+
+
+```{r}
+str(trip)
+```
+Verify that the data is usable
+
+```{r}
+#Trips by calendar date 
+datefreq <- count(trip, date)
+
+ggplot(data = datefreq, aes(date, n)) +
+    geom_point() +
+    geom_smooth(span = .3) + # (span = .7) is about the the default, gray lines represent SE
+    ggtitle("Trips Each Day") +
+    ylab("Total Number of Bicycle Trips") +
+    xlab("Date")
+```
+
+```{r}
+datefreq <- mutate(datefreq, weekend = (wday(datefreq$date) == 1 |
+                    wday(datefreq$date) == 7))
+            #Makes variable with True if date == sunday(1) or saturday (7)
+        
+datefreq$weekend <- factor(datefreq$weekend, labels = c("Weekday", "Weekend"))
+    #Give labels to variable
+
+ggplot(data = datefreq, aes(date, n)) +
+    geom_point(aes(color = weekend), size = 3, alpha = 0.65) +
+    ggtitle("Total Number of Trips Per Day") +
+    ylab("Total Number of Bicycle Trips") +
+    xlab("Date")
+
+```
+
+## Total number of trips by day of the week
+
+```{r}
+dailyfreq <- as.data.frame(table(wday(trip$date, label = TRUE)))
+    
+ggplot(data = dailyfreq, aes(x = Var1, Freq)) +
+    geom_bar(stat="identity") + #need to include stat = identity or will 
+    #try to make a count of the count 
+    ggtitle("Total Number of Trips Per Day") +
+    ylab("Total Number of Bicycle Trips") +
+    xlab("Day of the Week")
+```
+
+
+
+```{r}
+# Note: Since R doesn't have a time only class, you can convert the time stored 
+# in ymd_hms (via lubridate) to hours and minutes in numeric format 
+
+t2 <- ymd_hms(trip$start_date) 
+t3 <- hour(t2) + minute(t2)/60
+trip$daytime <- t3 
+rm(t2, t3) #Cleanup 
+    
+ggplot(trip, aes(daytime)) +
+  geom_histogram(binwidth = 0.25) + #Every fifteen minutes = binwidth 
+  geom_vline(xintercept = 9, color = 'orange')+
+  geom_vline(xintercept = 17, color = 'red', alpha = 0.7) +
+  annotate("text", x = 9, y = 27000, label = "9:00 AM", color = "orange",
+           size = 7) +
+  annotate("text", x = 17, y = 27000, label = "5:00 PM", color = "red", 
+           size = 7) +
+  xlab("Time of day on 24 hour clock") +
+  ylab("Total number of bicycle trips")
+```
+```{r}
+
+head(datefreq,10)
+```
+

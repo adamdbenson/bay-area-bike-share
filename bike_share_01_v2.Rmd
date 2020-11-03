@@ -1,0 +1,559 @@
+---
+title: "Bay Area Bike Share: a Reference for R in Data Analytics"
+author: "Adam Benson, PhD"
+date: "7/22/2020"
+output: html_document
+---
+
+Data taken from the Kaggle challenge 
+"https://www.kaggle.com/benhamner/sf-bay-area-bike-share"
+
+This data set has been used as a 'Hello World' for data science method 
+development. After the data has been loaded, cleaned and is generally 
+understood, it is customary to follow these steps:
+
+1. Define the problem or stated objectives
+2. Define or identify the desired metrics of results
+3. Understand how to present the expected results 
+4. Select candidate methods of analysis 
+5. Identify data required to perform the analysis
+6. Organize a method to gather data
+7. Perform analysis and capture deviations from expected results 
+
+and more...
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+Packages <- c("readr", "data.table", "lubridate", "dplyr", "ggplot2") 
+lapply(Packages, library, character.only = TRUE)
+```
+
+# Extract, Transform, and Load (ETL) Bike Share Data
+
+The plan is to load each data file, perform superficial data exploration and 
+clean up before moving forward. In the cases where the data needs to 
+
+## Station Data
+
+Example of loading a csv into R
+
+station.csv - Contains data that represents a station where users can pickup or return bikes.
+
+```{r get_data_station}
+station <- data.table(read.csv("~/Code/solo_projects/bike_share/station.csv", 
+                               stringsAsFactors=TRUE))#
+```
+
+Quick check
+
+```{r get_data_station_review}
+str(station) # 
+```
+
+id is shown as an int and installation is listed as a factor. Fix this. 
+Everything else looks good - unless there are some missing values.
+
+Manipulate the data to be the correct form.
+
+```{r get_data_station_reformat}
+station$id <- as.factor(station$id)
+station$installation_date <- mdy(station$installation_date)
+summary(station)
+```
+
+The data in this table now looks reasonable.
+
+# Trip
+
+trips.csv - Data about individual bike trips
+
+This provides a trip ID, duration of trip in minutes, the DTS of the start of 
+the rental, a couple of identifying factors of the station where the trip began, 
+a couple of identifying factors of the station where the trip ended, the ID of 
+the bike that was rented, whether the person renting did so as part of a 
+subscription or one time event, the zip code is of the renter.
+
+```{r get_data_trip}
+trip <- data.table(read.csv("~/Code/solo_projects/bike_share/trip.csv", header=TRUE))
+str(trip)
+```
+
+ID is listed as a number, dates are listed as factors, station ids are listed as
+numbers, bike ids are listed as numbers. These issues should be fixed. We can 
+also break out the day of the week as well as the hour.
+For this exercise we will say that rental is on an hourly bases with all times 
+rounded up to the next hour.
+```{r get_data_trip_correction}
+# After loading the data run this script only once, or you will get errors.
+library("lubridate")
+# fix the existing stuff first
+trip$id <- as.factor(trip$id)
+trip$start_date <- mdy_hm(trip$start_date)
+trip$start_station_name <- as.factor(trip$start_station_name)
+trip$start_station_id <- as.factor(trip$start_station_id)
+trip$end_date <- mdy_hm(trip$end_date)
+trip$end_station_name <- as.factor(trip$end_station_name)
+trip$end_station_id <- as.factor(trip$end_station_id)
+trip$bike_id <- as.factor(trip$bike_id)
+trip$subscription_type <- as.factor(trip$subscription_type)
+trip$zip_code <- as.factor(trip$zip_code)
+
+# get fancy
+trip$start_day_of_week <- wday(trip$start_date) %>% as.factor() #day of the week
+trip$start_hour <- hour(trip$start_date) # hour of the day
+trip$hours_rented <- ceiling(trip$duration/60) #
+# # trip$start_minute <- minute(trip$start_date) # hour of the day, not needed but demonstrated.
+# 
+str(trip)
+```
+
+
+```{r get_data_trip_correction}
+summary(trip)
+```
+
+## Weather
+
+weather.csv - Data about the weather on a specific day for certain zip codes
+
+```{r get_data_weather}
+weather <- data.table(read.csv("~/Code/solo_projects/bike_share/weather.csv", 
+                               na.strings = c("")))
+str(weather) # 
+```
+
+Date, precipitation_inches, and zip are wrong. Events should be cleaned up.
+
+```{r get_data_weather_corrections}
+weather$date <- mdy(weather$date)
+weather$zip_code <- as.factor(weather$zip_code)
+weather$precipitation_inches <- 
+  as.numeric(replace(weather$precipitation_inches, 
+                     weather$precipitation_inches == 'T', 0))
+weather$events <- as.factor(tolower(weather$events))
+str(weather)
+```
+
+```{r}
+summary(weather)
+```
+
+Weather looks a good deal better, but there are still some issues. 
+'wind_dir_degrees' has a max value of 2772 and there is no such value in 
+degrees. how should this be handled?
+Look at 'max_gust_speed_mph" and 'max_wind_Speed_mph' The values are 114.0 and 
+128 respectively. is that correct? That wind speed seems unlikely in the Bay 
+Area.
+
+## Status
+
+status.csv - data about the number of bikes and docks available for given station and minute.
+
+This is a larger data file, with almost 72 million records. data.table will help a lot here. Spoiler alert: station id and time are categorized as the wrong type of data. Let's Save the suspense and fix them now.
+
+```{r get_data_status}
+status <- data.table(read.csv("~/Code/solo_projects/bike_share/status.csv"))
+status$station_id <- as.factor(status$station_id)
+status$time <- ymd_hms(status$time)
+str(status)
+```
+
+Next, we can propose any number of analyses, then select one to perform [next meeting].
+
+## Visualize the Data
+
+### Stations
+
+Number of stations in each city
+
+```{r}
+station_count <- station %>% group_by(city) %>% count()
+
+setnames(station_count, "n", "stations")
+
+ggplot(station_count, aes(x=city, y=stations, fill=stations))+
+  geom_bar(stat="identity") +
+  geom_text(aes(label=stations), vjust=-0.3, size=4)+
+  xlab("City") + ylab("Station Count") 
+```
+
+What does this chart show/tell you? The number of stations in SF equals the sum 
+of the other stations.
+
+We will look at some data, making observations, to help us develop a good 
+research question. We will also see both good and bad ways to model data. You 
+should see the bad and to good to help you understand and use the technology 
+effectively.
+
+### Trips
+
+How long are bikes typically rented?
+
+Maybe a boxplot could help...
+```{r}
+new_trip %>% ggplot(aes(x=subscription_type, y=duration/60/24, fill=subscription_type)) +
+  geom_boxplot() +
+  geom_jitter(color="black", size=0.4, alpha=0.9) +
+  theme(
+    legend.position="none",
+    plot.title = element_text(size=11)
+  ) +
+  ggtitle("A boxplot of rentals(a year or less)") +
+  xlab("") + ylab("days rented")
+
+```
+
+It look like there are so many data points, with some outliers, the boxplot is nearly useless.
+
+A density plot will show the term of rental as a percentage of the whole.
+
+```{r}
+month_or_less <- subset(trip, duration <= 60*24*7) # 7 days
+ggplot(month_or_less, aes(fill = subscription_type, x = (duration/60/24)))+
+  geom_density() +
+  scale_fill_manual(values=c("#0000ff", "#ff8800")) + 
+  # theme_classic() +
+  xlab("days rented") +
+  ylab("percent of business")
+```
+
+ This right tailed graph shows that there are very few rentals more than two days long.
+
+```{r}
+day_or_less <- subset(trip, duration <= 60*24) # 1 day
+ggplot(day_or_less, aes(fill = subscription_type, x = (duration/60)))+
+  geom_density() +
+  scale_fill_manual(values=c("#0000ff", "#ff8800")) + 
+  # theme_classic() +
+  xlab("hours rented") +
+  ylab("percent of business") +
+  ggtitle("hours rented by type of customer")
+
+```
+
+The rental business might want to know more about day-to-day rentals for inventory management.
+
+### Weather
+
+Maybe weather, temperature, would have an effect on rentals. Look for extreme values in temperature before looking for a correlation.
+
+```{r}
+summary(weather$max_temperature_f)
+```
+
+Nothing really interesting here.
+
+```{r}
+summary(weather$min_temperature_f)
+```
+
+or here
+
+```{r}
+boxplot(weather$min_temperature_f~cycle(weather$mean_temperature_f))
+```
+
+a single boxplot of the annual min temp, agian isn't very helpful.
+
+```{r}
+plot(weather$date,weather$max_temperature_f)
+```
+
+```{r}
+ggplot(weather, aes(x=date, y=mean_temperature_f)) +
+  geom_line()
+
+```
+
+As you might expect, there is a cyclical pattern to the temperatures. Average 
+max temp was mid 80'2 and average min temperature was the high 30's. Relatively 
+speaking, the Bay Area weather is fairly mild. Winters are typically cool and 
+wet; summers are warm and dry. Later we can look for a model fit of weather 
+explaining variance in bike rental.
+
+### Status
+
+This is a second by second account of bikes and docks available for the 70 
+stations. As it is now we would hove approximately 1,028,349 x values and 140 
+data points for each one of those x values. This data won't be helpful until we
+do some grouping.
+
+# Grouping Data 
+
+Grouping data will allow us to "group," combine data into chunks that are more 
+reasonable for our needs. Rather than looking at rental activity second by 
+second, we could do it hourly or daily, depending on our research question.
+
+Make a new table that combines what we think may be interesting data to look at.
+
+```{r}
+temp_trip <- trip[0-5,]
+temp_trip
+# get a subset of the trip data. We chose the start of the rental, because there
+# is always a start; there may not be an end.
+renatals <- new_trip[, c("id", "duration", "start_date","start_station_name",
+                         "start_day_of_week")]
+rentals <- merge()
+```
+
+https://www.kaggle.com/parryfg/time-based-data-exploration
+
+# Time-Based Exploration of Bicycle Trip Data
+
+In this series of plots we will explore some data from the Bay Area Bicycle 
+Share program. The purpose is to determine if we can identify patters from what 
+might be thought of as noisy data sets. This is important given KR will be 
+collecting, organizing, analyzing, and reporting using novel data sets.
+
+Additional data exploration will help us develop a better research question, 
+e.g. can we get a sense for how the frequency of use varies across time. Is the 
+number of bicycle trips increasing or decreasing across time? Are there patterns
+in the total number of bicycle trips according to the time of day or time of 
+year? In this series of plots we will begin to explore these questions.
+
+```{r}
+##Load trip data
+trip_temp <- read.csv("trip.csv")
+station_temp <- read.csv("station.csv")
+station_temp_count <- station_temp %>% group_by(city) %>% count()
+
+#Prepare data for analysis 
+    #Get dates in right format
+    trip_temp$start_date <- mdy_hm(trip_temp$start_date)
+    trip_temp$end_date <- mdy_hm(trip_temp$end_date)
+    
+    trip_temp$date <- trip_temp$start_date
+    trip_temp$date <- as.Date(trip_temp$date) 
+
+    #Based on the start_station_temp ID, merge the "city" variable into trip_temp df
+    trip$date <- as.Date(trip$start_date)
+    trip$id2 <- trip$id
+    trip$id <- trip$start_station_id 
+    trip_temp <- left_join(trip_temp, station_temp, by = c ("start_station_id"="id"))
+    
+#Variable list
+names(trip_temp)
+```
+
+We see the data columns that are of interest to us.
+
+## Trips by calendar date
+
+First let's look at the total number of trips by calendar date. It will be 
+interesting to see how the number of total trips varies throughout the year. 
+Perhaps the number of trips on summer days will be more than the number of trips
+during the winter. Let's find out.
+
+```{r}
+#Trips by calendar date 
+datefreq <- count(trip_temp, date)
+
+ggplot(data = datefreq, aes(date, n)) +
+    geom_point() +
+    geom_smooth() +
+    ggtitle("Trips Each Day") +
+    ylab("Total Number of Bicycle Trips") +
+    xlab("Date")
+```
+This plot shows the total number of trips each day for a two year period, from 
+August 2013 through August 2015.
+
+Looking at the smoother line, there appear to be fewer trips in January of 2014 
+(on average) than by July of that year. While the number of trips on average 
+appears to decrease until January of 2015, it doesn't appear to return to the 
+same low of January 2014. From January 2015 until July 2015 the average number 
+of daily trips appears to be increasing. However, we can see an apparent 
+seasonal adjustment in rental activity.
+
+Also, there appears to be an interesting split in the data. Perhaps there is a 
+confounding variable. My guess is that is has to do with what day of the week it
+is. For example, do more people make bike trips on the weekends when they have 
+more leisure time? Or maybe the commuters are taking the bikes to get to work.
+Perhaps Friday is a big day for biking as it is the end of the work week? Let's 
+find out!
+
+## Total number of trips by day of the week
+
+```{r}
+dailyfreq <- as.data.frame(table(wday(trip_temp$date, label = TRUE)))
+        
+    ggplot(data = dailyfreq, aes(x = Var1, Freq)) +
+        geom_bar(stat="identity") + #need to include stat = identity or will 
+        #try to make a count of the count 
+        ggtitle("Total Number of Trips Per Day") +
+        ylab("Total Number of Bicycle Trips") +
+        xlab("Day of the Week")
+```
+
+It appears the commuter hypotHesis holds. It appears that fewer trips occur on 
+the weekends than on the weekdays. Commuters dominate the usage of the bicycles 
+which may explain this pattern. That's something to consider in future analysis 
+(e.g., binary variable). We also need to make sure that this pattern explains 
+the division in the data we saw earlier. This information could help the company
+management be better prepared for the scheduling of the relocation staff
+
+In order to see how the data are split, code the prior calendar plot with colors
+that correspond with weekdays or weekends. Remember that packaging sells.
+
+## Total number of trips by calendar date - weekend vs. weekday
+
+```{r}
+datefreq <- mutate(datefreq, weekend = (wday(datefreq$date) == 1 |
+                        wday(datefreq$date) == 7))
+            #Makes variable with True if date == sunday(1) or saturday (7)
+        
+        datefreq$weekend <- factor(datefreq$weekend, labels = c("Weekday", "Weekend"))
+            #Give labels to variable
+        
+        ggplot(data = datefreq, aes(date, n)) +
+            geom_point(aes(color = weekend), size = 3, alpha = 0.65) +
+            ggtitle("Total Number of Trips Per Day") +
+            ylab("Total Number of Bicycle Trips") +
+            xlab("Date")
+
+```
+
+Interesting! This confirms that some of the pattern in the data across the year 
+can be explained by weekday vs. weekend usage. Now get a view of the same data 
+but plotted separately by weekend and weekday. Note you see that during the 
+holiday season, even weekly rental seems to drop off.
+
+Separate plots for weekend and weekday
+
+```{r}
+ggplot(data = datefreq, aes(date, n)) +
+            geom_point(size = 3, alpha = 0.65) +
+            facet_grid(. ~ weekend) + 
+            geom_smooth(se = FALSE) +
+            ylab("Total Number of Bicycle Trips") +
+            xlab("Date")
+```
+With the data split one can see a little better the trends between weekday and 
+weekend usage over time. Weekday trips still appear to have a lot of variance. 
+Cold this variance be explained by the holidays. look at the end of December and
+beginning of January.
+
+Now that we've seen how the number of trips varies throughout the year, how 
+about we take a look at how it varies throughout the day.
+
+## Total trips by hour of the day
+
+Given the majority of the rental happens during week days, commuting days, it 
+would follow that rental activity would mirror hourly commuting patterns.
+
+```{r}
+# Note: Since R doesn't have a time only class, you can convert the time stored 
+# in ymd_hms (via lubridate) to hours and minutes in numeric format 
+    
+        t2 <- ymd_hms(trip_temp$start_date) 
+        t3 <- hour(t2) + minute(t2)/60
+        trip_temp$daytime <- t3 
+        rm(t2, t3) #Cleanup 
+    
+    ggplot(trip_temp, aes(daytime)) +
+        geom_histogram(binwidth = 0.25) + #Every fifteen minutes = binwidth 
+        geom_vline(xintercept = 9, color = 'orange')+
+        geom_vline(xintercept = 17, color = 'red', alpha = 0.7) +
+        annotate("text", x = 9, y = 27000, label = "9:00 AM", color = "orange",
+                 size = 7) +
+        annotate("text", x = 17, y = 27000, label = "5:00 PM", color = "red", 
+                 size = 7) +
+        xlab("Time of day on 24 hour clock") +
+        ylab("Total number of bicycle trips")
+```
+The rental patterns look to line up well with what we might consider 
+traditional commuting patterns.
+
+## Number of trips by hour, across the year
+
+
+```{r}
+trip_temp$quarter <- quarter(trip_temp$date)
+
+ggplot(trip_temp, aes(daytime)) +
+    geom_histogram(binwidth = 0.25) + #Every fifteen minutes = binwidth 
+    geom_vline(xintercept = 9, color = 'orange')+
+    geom_vline(xintercept = 17, color = 'red', alpha = 0.7) +
+    xlab("Time of day on 24 hour clock") +
+    ylab("Total number of bicycle trips") +
+    facet_wrap(~quarter)
+```
+This breaks the rental data out across the quarter (season) showing that there 
+is a lot of activity during the commuting time as well as at lunch.
+
+Each plot corresponds with a different quarter of the year. Quarter 1 (January -
+March), Quarter 2 (April - June), Quarter 3 (July - September) or Quarter 4 
+(October - December). From these plots it looks like that pattern from before 
+holds. That is, the total number of trips peaks around rush hour each. Also 
+notice the consistent small peak around lunch hour each day at noon.
+
+Now let's take a look at how the city and type of bicycle rider (subscriber vs. 
+customer) may be influencing these trends.
+
+## Usage by city
+
+```{r}
+#Weekend variable to trip df
+    trip_temp <- mutate(trip_temp, weekend = (wday(trip_temp$date) == 1 |
+                                            wday(trip_temp$date) == 7))
+    trip_temp$weekend <- factor(trip_temp$weekend, labels = c("Weekday", "Weekend"))
+    
+#Plot usage by city
+   ggplot(data = trip_temp, aes(date)) +
+             geom_bar(aes(color = weekend), stat = "count",
+                      position = "stack") +
+            ggtitle("Trips by City Across Time") +
+            ylab("Total Number of Bicycle Trips") +
+            xlab("Trend Across Time") +
+            facet_grid(~city) +
+            theme(axis.text.x = element_blank())
+```
+
+As you can see, San Francisco dominates the usage of the program. One thing one 
+should also consider is if customers vs. subscriber is influencing anything.
+Understanding this could again help with staffing, but marketing and plans for 
+expansion as well.
+
+## Customers vs. Subscribers
+
+```{r}
+ggplot(data = trip_temp, aes(date)) +
+            geom_bar(aes(color = subscription_type), stat = "count", 
+                     position = "stack") +
+            ggtitle("Customer Vs. Subscriber on Weekends and Weekdays") +
+            ylab("Total Number of Bicycle Trips") +
+            xlab("Trend Across Time") +
+            facet_grid(~weekend) +
+            theme(axis.text.x = element_blank())
+```
+
+It looks like subscribers dominate usage on the weekday. Weekend the usage is 
+more balanced. Does the strength of this trend hold for different cities? 
+Perhaps with all those tourists there are more customers in San Francisco 
+relative to subscribers.
+
+```{r}
+ggplot(data = trip_temp, aes(date)) +
+            geom_bar(aes(color = subscription_type), stat = "count", position = "stack") +
+            ggtitle("Subscribers Vs. Customers - Trips Per Day by City ") +
+            ylab("Total Number of Bicycle Trips") +
+            xlab("Trend Across Time") +
+            facet_wrap(~city, scale = "free_y") +
+            theme(axis.text.x = element_blank())
+```
+
+It looks like the trend does indeed hold for San Francisco. However, Palo Alto 
+seems to have a more balanced usage. You can also get a sense from these graphs 
+how unbalanced the usage is across cities. My hometown of Redwood City peaks at 
+about 25 trips a day compared with San Francisco that peaks closer to 1,300 
+trips a day.
+
+We've seen how the number of trips fluctuates across the entire year, how it 
+fluctuates according to weekend Vs. weekday, and by hour of the day. We've also 
+seen the balance of the number of trips by city and by subscription type.
+
+What would you suggest the next research questions be?
+Can you put a model to the data to predict usage? The data is non-linear...
+Given the data sets we expect at KR what strategy cold help develop the most 
+pertinent information?
+

@@ -1,0 +1,267 @@
+---
+title: "Bay Area Bike Share: a Reference for R in Data Analytics"
+author: "Adam Benson, PhD"
+date: "7/22/2020"
+output: html_document
+---
+
+Data taken from the Kaggle challenge 
+"https://www.kaggle.com/benhamner/sf-bay-area-bike-share"
+
+This data set has been used as a 'Hello World' for data science method 
+development. After the data has been loaded, cleaned and is generally 
+understood, it is customary to follow these steps:
+
+1. Define the problem or stated objectives
+2. Define or identify the desired metrics of results
+3. Understand how to present the expected results 
+4. Select candidate methods of analysis 
+5. Identify data required to perform the analysis
+6. Organize a method to gather data
+7. Perform analysis and capture deviations from expected results 
+
+and more...
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+Packages <- c("readr", "data.table", "lubridate", "dplyr", "ggplot2") 
+lapply(Packages, library, character.only = TRUE)
+```
+
+# Extract, Transform, and Load (ETL) Bike Share Data
+
+The plan is to load each data file, perform superficial data exploration and 
+clean up before moving forward. In the cases where the data needs to 
+
+## Station Data
+
+Example of loading a csv into R
+
+station.csv - Contains data that represents a station where users can pickup or return bikes.
+
+```{r get_data_station}
+station <- data.table(read.csv("~/Code/solo_projects/bike_share/station.csv", 
+                               stringsAsFactors=TRUE))#
+```
+
+Quick check
+
+```{r get_data_station_review}
+str(station) # 
+```
+
+id is shown as an int and installation is listed as a factor. Fix this. 
+Everything else looks good - unless there are some missing values.
+
+Manipulate the data to be the correct form.
+
+```{r get_data_station_reformat}
+station$id <- as.factor(station$id)
+station$installation_date <- mdy(station$installation_date)
+summary(station)
+```
+
+The data in this table now looks reasonable.
+
+# Trip
+
+trips.csv - Data about individual bike trips
+
+This provides a trip ID, duration of trip in minutes, the DTS of the start of 
+the rental, a couple of identifying factors of the station where the trip began, 
+a couple of identifying factors of the station where the trip ended, the ID of 
+the bike that was rented, whether the person renting did so as part of a 
+subscription or one time event, the zip code is of the renter.
+
+```{r get_data_trip}
+trip <- data.table(read.csv("~/Code/solo_projects/bike_share/trip.csv", stringsAsFactors=TRUE))
+str(trip)
+```
+
+ID is listed as a number, dates are listed as factors, station ids are listed as
+numbers, bike ids are listed as numbers. These issues should be fixed.
+
+```{r get_data_trip_correction}
+trip$id <- as.factor(trip$id)
+trip$start_date <- mdy_hms(trip$start_date)
+trip$end_date <- mdy_hms(trip$end_date)
+trip$start_station_id <- as.factor(trip$start_station_id)
+trip$end_station_id <- as.factor(trip$end_station_id)
+trip$bike_id <- as.factor(trip$bike_id)
+summary(trip)
+```
+
+Trip looks to be better. But look at the max value for duration. For the purpose
+of this exercise, we will remove that record. Normally you do not remove data, 
+ever. In this case, it is a report that the bike has been out for more than 32 
+years - not possible. We will look at rentals that are a year or less.
+
+```{r}
+new_trip <- subset(trip, duration <= 525600 )
+summary(new_trip)
+```
+
+
+## Weather
+
+weather.csv - Data about the weather on a specific day for certain zip codes
+
+```{r get_data_weather}
+weather <- data.table(read.csv("~/Code/solo_projects/bike_share/weather.csv", 
+                               na.strings = c("")))
+str(weather) # 
+```
+
+Date, precipitation_inches, and zip are wrong. Events should be cleaned up.
+
+```{r get_data_weather_corrections}
+weather$date <- mdy(weather$date)
+summary(weather)
+weather$zip_code <- as.factor(weather$zip_code)
+summary(weather)
+weather$precipitation_inches <- 
+  as.numeric(replace(weather$precipitation_inches, 
+                     weather$precipitation_inches == 'T', 0))
+summary(weather)
+weather$events <- as.factor(tolower(weather$events))
+str(weather)
+```
+
+Weather looks a good deal better, but there are still some issues. 
+'wind_dir_degrees' has a max value of 2772 and there is no such value in 
+degrees. how should this be handled?
+Look at 'max_gust_speed_mph" and 'max_wind_Speed_mph' The values are 114.0 and 
+128 respectively. is that correct? That wind speed seems unlikely in the Bay 
+Area.
+
+## Status
+
+status.csv - data about the number of bikes and docks available for given station and minute.
+
+This is a larger data file, with almost 72 million records. data.table will help a lot here. Spoiler alert: station id and time are categorized as the wrong type of data. Let's Save the suspense and fix them now.
+
+```{r get_data_status}
+status <- data.table(read.csv("~/Code/solo_projects/bike_share/status.csv"))
+status$station_id <- as.factor(status$station_id)
+status$time <- ymd_hms(status$time)
+str(status)
+```
+
+Next, we can propose any number of analyses, then select one to perform [next meeting].
+
+## Visualize the Data
+
+### Stations
+
+Number of stations in each city
+
+```{r}
+station_count <- station %>% group_by(city) %>% count()
+
+setnames(station_count, "n", "stations")
+
+ggplot(station_count, aes(x=city, y=stations, fill=stations))+
+  geom_bar(stat="identity") +
+  geom_text(aes(label=stations), vjust=-0.3, size=4)+
+  xlab("City") + ylab("Station Count") 
+```
+
+What does this chart show/tell you?
+
+
+### Trips
+
+How long are bikes typically rented?
+
+Maybe a boxplot could help...
+```{r}
+new_trip %>% ggplot(aes(x=subscription_type, y=duration/60/24, fill=subscription_type)) +
+  geom_boxplot() +
+  geom_jitter(color="black", size=0.4, alpha=0.9) +
+  theme(
+    legend.position="none",
+    plot.title = element_text(size=11)
+  ) +
+  ggtitle("A boxplot of rentals(a year or less)") +
+  xlab("") + ylab("days rented")
+
+```
+
+It look like there are so many data points, with some outliers, the boxplot is nearly useless.
+
+A density plot will show the term of rental as a percentage of the whole.
+
+```{r}
+month_or_less <- subset(trip, duration <= 60*24*7) # 7 days
+ggplot(month_or_less, aes(fill = subscription_type, x = (duration/60/24)))+
+  geom_density() +
+  scale_fill_manual(values=c("#0000ff", "#ff8800")) + 
+  # theme_classic() +
+  xlab("days rented") +
+  ylab("percent of business")
+```
+
+ This right tailed graph shows that there are very few rentals more than two days long.
+
+```{r}
+day_or_less <- subset(trip, duration <= 60*24) # 1 day
+ggplot(day_or_less, aes(fill = subscription_type, x = (duration/60)))+
+  geom_density() +
+  scale_fill_manual(values=c("#0000ff", "#ff8800")) + 
+  # theme_classic() +
+  xlab("hours rented") +
+  ylab("percent of business") +
+  ggtitle("hours rented by type of customer")
+
+```
+
+The rental business might want to know more about day-to-day rentals for inventory management.
+
+### Weather
+
+Maybe weather, temperature, would have an effect on rentals. Look for extreme values in temperature before looking for a correlation.
+
+```{r}
+summary(weather$max_temperature_f)
+```
+
+```{r}
+summary(weather$min_temperature_f)
+```
+```{r}
+boxplot(weather$min_temperature_f~cycle(weather$mean_temperature_f))
+```
+
+```{r}
+plot(weather$date,weather$max_temperature_f)
+```
+
+```{r}
+ggplot(weather, aes(x=date, y=mean_temperature_f)) +
+  geom_line()
+
+```
+
+As you might expect, there is a cyclical pattern to the temperatures. Average 
+max temp was mid 80'2 and average min temperature was the high 30's. Relatively 
+speaking, the Bay Area weather is fairly mild. Winters are typically cool and 
+wet; summers are warm and dry. Later we can look for a model fit of weather 
+explaining variance in bike rental.
+
+### Status
+
+We might look at how many bikes are rented out as the docks available minus the 
+bikes available we don't know the number of bikes in the total inventory at a
+given time, but if docks are added, by way of bringing on new stations, 
+it might be safe to guess the number of bikes have been added to fill those 
+docks.
+```{r}
+summary(status)
+```
+
+
+
+
+
+
+
